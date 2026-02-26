@@ -5,9 +5,24 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database("kin.db");
+const dbPath = path.resolve(__dirname, "kin.db");
+let db: any;
 
-// Initialize Database
+try {
+  db = new Database(dbPath);
+} catch (err) {
+  console.error("Failed to connect to database:", err);
+  db = {
+    prepare: () => ({ 
+      get: () => null, 
+      run: () => ({ lastInsertRowid: 0, changes: 0 }),
+      all: () => []
+    }),
+    exec: () => {},
+    transaction: (fn: any) => fn
+  };
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +89,6 @@ db.exec(`
   );
 `);
 
-// Migration: Ensure columns exist for older databases
 const tableInfo = db.prepare("PRAGMA table_info(products)").all() as any[];
 const columns = tableInfo.map(c => c.name);
 if (!columns.includes('category_id')) {
@@ -99,16 +113,11 @@ if (!catColumns.includes('is_hidden')) {
   try { db.exec("ALTER TABLE categories ADD COLUMN is_hidden INTEGER DEFAULT 0"); } catch(e) {}
 }
 
-// Seed initial data if empty
 const categoryCount = db.prepare("SELECT COUNT(*) as count FROM categories").get() as { count: number };
 if (categoryCount.count === 0) {
   const insertCat = db.prepare("INSERT INTO categories (name) VALUES (?)");
   ['Men', 'Women', 'Accessories', 'Heritage'].forEach(cat => insertCat.run(cat));
-  
-  // Seed an admin user (Password is 'admin123' for demo)
   db.prepare("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)").run('Admin', 'admin@kin.com.bd', 'admin123', 'admin');
-
-  // Seed default settings
   const insertSetting = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
   insertSetting.run('contact_phone', '01831990776');
   insertSetting.run('contact_email', 'concierge@kin.com.bd');
@@ -135,7 +144,6 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
 
-  // Auth Routes
   app.post("/api/auth/register", (req, res) => {
     const { name, email, phone, address, password } = req.body;
     try {
@@ -169,7 +177,6 @@ async function startServer() {
     }
   });
 
-  // Product Routes
   app.get("/api/products", (req, res) => {
     const products = db.prepare(`
       SELECT p.*, c.name as category_name, c.is_hidden as category_hidden
@@ -199,7 +206,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Category Routes
   app.get("/api/categories", (req, res) => {
     const categories = db.prepare("SELECT * FROM categories ORDER BY name").all();
     res.json(categories);
@@ -227,7 +233,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Hero Slides Routes
   app.get("/api/hero-slides", (req, res) => {
     const slides = db.prepare("SELECT * FROM hero_slides ORDER BY created_at DESC").all();
     res.json(slides);
@@ -252,7 +257,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Admin User Management
   app.get("/api/admin/users", (req, res) => {
     const users = db.prepare("SELECT id, name, email, role, phone, created_at FROM users ORDER BY created_at DESC").all();
     res.json(users);
@@ -292,7 +296,6 @@ async function startServer() {
     res.json({ totalSales: totalSales.total || 0, orderCount: orderCount.count, productCount: productCount.count });
   });
 
-  // Settings / CMS Routes
   app.get("/api/settings", (req, res) => {
     const settings = db.prepare("SELECT * FROM settings").all();
     const settingsMap = settings.reduce((acc: any, s: any) => {
@@ -314,7 +317,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -328,10 +330,20 @@ async function startServer() {
     });
   }
 
-  const PORT = 3000;
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Kin! Server running on http://localhost:${PORT}`);
-  });
+  const PORT = process.env.PORT || 3000;
+  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+    app.listen(Number(PORT), "0.0.0.0", () => {
+      console.log(`Kin! Server running on http://localhost:${PORT}`);
+    });
+  }
+  return app;
 }
 
-startServer();
+export default async (req: any, res: any) => {
+  const app = await startServer();
+  return app(req, res);
+};
+
+if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+  startServer();
+}
