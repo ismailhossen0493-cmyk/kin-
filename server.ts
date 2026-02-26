@@ -94,16 +94,11 @@ db.exec(`
 // Migration: Ensure columns exist
 const tableInfo = db.prepare("PRAGMA table_info(products)").all() as any[];
 const columns = tableInfo.map(c => c.name);
-['category_id', 'sizes', 'colors', 'description', 'brand', 'is_preorder'].forEach(col => {
-  if (!columns.includes(col)) {
-    try { db.exec(`ALTER TABLE products ADD COLUMN ${col} ${col === 'is_preorder' ? 'INTEGER DEFAULT 0' : 'TEXT'}`); } catch(e) {}
-  }
-});
-
-const catTableInfo = db.prepare("PRAGMA table_info(categories)").all() as any[];
-const catColumns = catTableInfo.map(c => c.name);
-if (!catColumns.includes('is_hidden')) {
-  try { db.exec("ALTER TABLE categories ADD COLUMN is_hidden INTEGER DEFAULT 0"); } catch(e) {}
+if (!columns.includes('is_preorder')) {
+  try { db.exec("ALTER TABLE products ADD COLUMN is_preorder INTEGER DEFAULT 0"); } catch(e) {}
+}
+if (!columns.includes('brand')) {
+  try { db.exec("ALTER TABLE products ADD COLUMN brand TEXT"); } catch(e) {}
 }
 
 async function startServer() {
@@ -131,7 +126,12 @@ async function startServer() {
 
   // Product Routes
   app.get("/api/products", (req, res) => {
-    const products = db.prepare("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.created_at DESC").all();
+    const products = db.prepare(`
+      SELECT p.*, c.name as category_name, c.is_hidden as category_hidden
+      FROM products p 
+      LEFT JOIN categories c ON p.category_id = c.id 
+      ORDER BY p.created_at DESC
+    `).all();
     res.json(products);
   });
 
@@ -166,6 +166,15 @@ async function startServer() {
 
   app.put("/api/categories/:id", (req, res) => {
     db.prepare("UPDATE categories SET name = ?, is_hidden = ? WHERE id = ?").run(req.body.name, req.body.is_hidden ? 1 : 0, req.params.id);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/categories/:id", (req, res) => {
+    const id = req.params.id;
+    db.transaction(() => {
+      db.prepare("UPDATE products SET category_id = NULL WHERE category_id = ?").run(id);
+      db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+    })();
     res.json({ success: true });
   });
 
