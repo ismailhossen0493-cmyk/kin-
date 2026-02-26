@@ -55,6 +55,8 @@ db.exec(`
     image_url TEXT,
     sizes TEXT,
     colors TEXT,
+    product_code TEXT,
+    is_preorder INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(category_id) REFERENCES categories(id)
   );
@@ -108,6 +110,12 @@ if (!columns.includes('description')) {
 }
 if (!columns.includes('brand')) {
   try { db.exec("ALTER TABLE products ADD COLUMN brand TEXT"); } catch(e) {}
+}
+if (!columns.includes('is_preorder')) {
+  try { db.exec("ALTER TABLE products ADD COLUMN is_preorder INTEGER DEFAULT 0"); } catch(e) {}
+}
+if (!columns.includes('product_code')) {
+  try { db.exec("ALTER TABLE products ADD COLUMN product_code TEXT"); } catch(e) {}
 }
 
 const catTableInfo = db.prepare("PRAGMA table_info(categories)").all() as any[];
@@ -198,16 +206,16 @@ async function startServer() {
   });
 
   app.post("/api/products", (req, res) => {
-    const { name, price, category_id, brand, stock, image_url, description, sizes, colors } = req.body;
-    const stmt = db.prepare("INSERT INTO products (name, price, category_id, brand, stock, image_url, description, sizes, colors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    const info = stmt.run(name, price, category_id, brand, stock, image_url, description, JSON.stringify(sizes), JSON.stringify(colors));
+    const { name, price, category_id, brand, stock, image_url, description, sizes, colors, is_preorder, product_code } = req.body;
+    const stmt = db.prepare("INSERT INTO products (name, price, category_id, brand, stock, image_url, description, sizes, colors, is_preorder, product_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    const info = stmt.run(name, price, category_id, brand, stock, image_url, description, JSON.stringify(sizes), JSON.stringify(colors), is_preorder ? 1 : 0, product_code);
     res.json({ id: info.lastInsertRowid });
   });
 
   app.put("/api/products/:id", (req, res) => {
-    const { name, price, category_id, brand, stock, image_url, description, sizes, colors } = req.body;
-    const stmt = db.prepare("UPDATE products SET name = ?, price = ?, category_id = ?, brand = ?, stock = ?, image_url = ?, description = ?, sizes = ?, colors = ? WHERE id = ?");
-    stmt.run(name, price, category_id, brand, stock, image_url, description, JSON.stringify(sizes), JSON.stringify(colors), req.params.id);
+    const { name, price, category_id, brand, stock, image_url, description, sizes, colors, is_preorder, product_code } = req.body;
+    const stmt = db.prepare("UPDATE products SET name = ?, price = ?, category_id = ?, brand = ?, stock = ?, image_url = ?, description = ?, sizes = ?, colors = ?, is_preorder = ?, product_code = ? WHERE id = ?");
+    stmt.run(name, price, category_id, brand, stock, image_url, description, JSON.stringify(sizes), JSON.stringify(colors), is_preorder ? 1 : 0, product_code, req.params.id);
     res.json({ success: true });
   });
 
